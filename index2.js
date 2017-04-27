@@ -3,6 +3,7 @@ var gl;
 var refugees;
 var mapMatrix = new Float32Array(16);
 var pixelsToWebGLMatrix = new Float32Array(16);
+var timeSlider;
 
 
 var mapOptions = {
@@ -298,7 +299,7 @@ var mapOptions = {
 
 var canvasLayerOptions = {
   resizeHandler: resize,
-  animate: false,
+  animate: true,
   updateHandler: update
 };
 
@@ -310,16 +311,18 @@ function update() {
   var translation = canvasLayer.getMapTranslation();
   translateMatrix(mapMatrix, translation.x, translation.y);  
 
-  var countryLevelZoom = 10;
+  var countryLevelZoom = 4;
   var countryPointSizePixels = 2;
 
-  var blockLevelZoom = 18;
-  var blockPointSizePixels = 15;
+  var blockLevelZoom = 10;
+  var blockPointSizePixels = 20;
 
   var pointSize = countryPointSizePixels * Math.pow(blockPointSizePixels / countryPointSizePixels, (map.zoom - countryLevelZoom) / (blockLevelZoom - countryLevelZoom));
 
-  if (refugees.showTotals && refugees.ready['totals']) {
-    refugees.drawTotals(mapMatrix, {pointSize: pointSize});    
+  if (refugees.showPerYear && refugees.ready['perYear']) {
+    var epoch = timeSlider.getCurrentTime()/1000;
+    refugees.drawPerYear(mapMatrix, {pointSize: pointSize, epoch: epoch});    
+    timeSlider.animate();
   }
 }
 
@@ -335,6 +338,26 @@ function resize() {
     -1,   1,   0, 1]);
 }
 
+function initTimeSlider() {
+  var timeSlider = new TimeSlider({
+    startTime: new Date("2002").getTime(),
+    endTime: new Date("2016-12-01").getTime(),
+    dwellAnimationTime: 3 * 1000,
+    increment: 30*24*60*60*1000,
+    formatCurrentTime: function(date) {
+        var date = new Date(date);
+        var year = date.getUTCFullYear();
+        return year;
+    },
+    animationRate: {
+      fast: 20,
+      medium: 40,
+      slow: 80
+    }
+  });  
+  return timeSlider;
+}
+
 function init() {
   var mapDiv = document.getElementById('map-div');
   map = new google.maps.Map(mapDiv, mapOptions);
@@ -342,16 +365,20 @@ function init() {
   canvasLayerOptions.map = map;
   canvasLayer = new CanvasLayer(canvasLayerOptions);
 
+  timeSlider = initTimeSlider();
+
   // initialize WebGL
   gl = canvasLayer.canvas.getContext('experimental-webgl');
   gl.getExtension("OES_standard_derivatives");
   refugees = new Refugees(gl);
-  getJSON('data/total.geojson', function(array) {
-    refugees.setBuffer('totals', array);    
+  refugees.showPerYear = true;
+
+  getJSON('data/total_per_year.geojson', function(array) {
+    refugees.setBuffer('perYear', array);    
   })
 
   var gui = new dat.GUI();
-  gui.add(refugees, 'showTotals');
+  gui.add(refugees, 'showPerYear');
 
 }
 
@@ -389,6 +416,10 @@ function getBin(url, callback) {
     xhr.send();
 }
 
+var epochs = [];
+for (var i = 2002; i < 2018; i++) {
+  epochs[i-2002] = new Date(i.toString()).getTime()/1000.0;
+}
 function getJSON(url, callback) {
     const xhr = new XMLHttpRequest();
     xhr.responseType = 'json';
@@ -398,18 +429,28 @@ function getJSON(url, callback) {
             //callback(xhr.response);
             //console.log(xhr.response);
             var features = xhr.response.features;
-            var sorted_features = features.sort(propSort("total"));
             var points = [];
+            //points look like x,y,epoch_1,val_1,epoch_2,val_2
             for (var i = 0; i < features.length; i++) {
               var geo = features[i]['geometry'];
-              var prop = features[i]['properties'];              
+              var totals = features[i]['properties']['totals'];              
               var xy = LonLatToPixelXY(geo['coordinates'][0], geo['coordinates'][1]);
+              for (var ii = 0; ii < totals.length - 1; ii++) {
+                points.push(xy[0]);
+                points.push(xy[1]);
+                points.push(epochs[ii]);
+                points.push(totals[ii]);
+                points.push(epochs[ii+1]);
+                points.push(totals[ii+1]);
+              }
               points.push(xy[0]);
               points.push(xy[1]);
-//              points.push(Math.sqrt(prop['total']));
-              points.push(prop['total']/70);
+              points.push(epochs[ii]);
+              points.push(totals[ii]);
+              points.push(epochs[ii+1]);
+              points.push(totals[ii]);
             }
-
+            //console.log(points);
            callback(new Float32Array(points));
 
         } else {

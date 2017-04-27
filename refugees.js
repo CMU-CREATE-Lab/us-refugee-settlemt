@@ -91,6 +91,29 @@ var pointVertexShader = "" +
 "  gl_PointSize = u_point_size * a_total;\n" +
 "}";
 
+var pointPerYearVertexShader = "" +
+"attribute vec4 a_coord;\n" +
+"attribute float a_epoch1;\n" +
+"attribute float a_val1;\n" +
+"attribute float a_epoch2;\n" +
+"attribute float a_val2;\n" +
+"uniform mat4 u_map_matrix;\n" +
+"uniform float u_point_size;\n" +
+"uniform float u_epoch;\n" +
+"void main() {\n" +
+"  vec4 position;\n" +
+"        if (a_epoch1 > u_epoch || a_epoch2 <= u_epoch) {\n" +
+"          position = vec4(-1,-1,-1,-1);\n" +
+"        } else {\n" +
+"          position = u_map_matrix * vec4(a_coord.x, a_coord.y, 0, 1);\n" +
+"        }\n" +
+"  gl_Position = position;\n" +
+"  float delta = (u_epoch - a_epoch1)/(a_epoch2 - a_epoch1);\n" +
+"  float size = (a_val2 - a_val1) * delta + a_val1;\n" +
+"  gl_PointSize = u_point_size * sqrt(size);\n" +
+"  //gl_PointSize = sqrt(size);\n" +
+"}";
+
 var pointFragmentShader = "" +
 "#extension GL_OES_standard_derivatives : enable\n" +
 "precision mediump float;\n" +
@@ -118,21 +141,28 @@ var pointFragmentShader = "" +
 var Refugees = function Refugees(gl) {
     this.gl = gl;
     this.programs = {
-        'totals': createProgram(gl, pointVertexShader, pointFragmentShader)
+        'totals': createProgram(gl, pointVertexShader, pointFragmentShader),
+        'perYear': createProgram(gl, pointPerYearVertexShader, pointFragmentShader)
     }
     this.numAttributes = {
         'totals': 3,
+        'perYear': 6,
         'airReleases': 3,
         'waterReleases': 3,
         'landReleases': 3
 
     }
+    this.ready = {
+        'totals': false,
+        'perYear': false
+    }
+
     this.buffers = {
         'totals': {
             'count': 0,
             'buffer': null            
         },
-        'airReleases': {
+        'perYear': {
             'count': 0,
             'buffer': null            
         },        
@@ -147,6 +177,7 @@ var Refugees = function Refugees(gl) {
 
     }
     this.showTotals = true;
+    this.showPerYear = false;
     this.showAirReleases = false;
     this.showWaterReleases = false;
     this.showLandReleases = false;
@@ -156,6 +187,7 @@ var Refugees = function Refugees(gl) {
 Refugees.prototype.setBuffer = function (key, data) {
     this.buffers[key].count = data.length / this.numAttributes[key];
     this.buffers[key].buffer = createBuffer(gl, data);   
+    this.ready[key] = true;
 }
 
 Refugees.prototype.drawTotals = function (transform, options) {
@@ -174,6 +206,33 @@ Refugees.prototype.drawTotals = function (transform, options) {
     gl.uniform1f(program.u_point_size, pointSize);
 
     if (this.showTotals) {
+        gl.drawArrays(gl.POINTS, 0, buffer.count);
+    }
+    gl.disable(gl.BLEND);
+
+};
+
+Refugees.prototype.drawPerYear = function (transform, options) {
+    var options = options || {};
+    var pointSize = options.pointSize || 10.;
+    var epoch = options.epoch || new Date('2012').getTime()/1000.;
+    var gl = this.gl;
+    gl.enable(gl.BLEND);
+    gl.blendFunc( gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA );
+    var program = this.programs['perYear'];
+    var buffer = this.buffers['perYear'];
+    gl.useProgram(program.program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer.buffer);
+    bindAttribute(gl, program.program, 'a_coord', 2, gl.FLOAT, false, 24, 0);    
+    bindAttribute(gl, program.program, 'a_epoch1', 1, gl.FLOAT, false, 24, 8);    
+    bindAttribute(gl, program.program, 'a_val1', 1, gl.FLOAT, false, 24, 12);    
+    bindAttribute(gl, program.program, 'a_epoch2', 1, gl.FLOAT, false, 24, 16);    
+    bindAttribute(gl, program.program, 'a_val2', 1, gl.FLOAT, false, 24, 20);    
+    gl.uniformMatrix4fv(program.u_map_matrix, false, transform);
+    gl.uniform1f(program.u_point_size, pointSize);
+    gl.uniform1f(program.u_epoch, epoch);
+
+    if (this.showPerYear) {
         gl.drawArrays(gl.POINTS, 0, buffer.count);
     }
     gl.disable(gl.BLEND);
